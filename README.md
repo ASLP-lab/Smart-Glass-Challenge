@@ -148,23 +148,24 @@ The numbers below are reference baseline scores evaluated on the **official deve
 
 ### Task 1 — TSA-ASR
 
-The following scores are obtained by running the metrics in this toolkit on the output of [**VibeVoice-ASR**](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md).
+The following scores are obtained by running the metrics in this toolkit on the outputs of two reference systems:
+
+- **VibeVoice-ASR**: the off-the-shelf [**VibeVoice-ASR**](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md) checkpoint, used directly without any adaptation to the challenge data.
+- **VibeVoice-ASR (fine-tuned)**: the same VibeVoice-ASR backbone, LoRA-fine-tuned **separately** on the official training data of each track (i.e., the Track 1 model is fine-tuned only on Track 1 data, and the Track 2 model only on Track 2 data). The training setup follows [`example/VibeVoice/finetuning-asr/train.sh`](example/VibeVoice/finetuning-asr/train.sh); see [`example/VibeVoice/README.md`](example/VibeVoice/README.md) for installation, fine-tuning and inference instructions.
 
 #### Track 1 — Dyadic Dialogue Understanding
 
-| Metric                  | Value     |
-|-------------------------|-----------|
-| DER (collar = 0.25 s)   | 9.90 %    |
-| cpWER                   | 15.50 %   |
-| tcpWER (collar = 5 s)   | 15.95 %   |
+| System                       | DER (collar = 0.25 s) | cpWER     | tcpWER (collar = 5 s) |
+|------------------------------|:---------------------:|:---------:|:---------------------:|
+| VibeVoice-ASR                | 10.02 %               | 15.77 %   | 16.24 %               |
+| VibeVoice-ASR (fine-tuned)   | 17.24 %               | 12.88 %   | 14.09 %               |
 
 #### Track 2 — Multi-Party Meeting Understanding
 
-| Metric                  | Value     |
-|-------------------------|-----------|
-| DER (collar = 0.25 s)   | 17.39 %   |
-| cpWER                   | 30.72 %   |
-| tcpWER (collar = 5 s)   | 31.56 %   |
+| System                       | DER (collar = 0.25 s) | cpWER     | tcpWER (collar = 5 s) |
+|------------------------------|:---------------------:|:---------:|:---------------------:|
+| VibeVoice-ASR                | 19.16 %               | 31.85 %   | 32.39 %               |
+| VibeVoice-ASR (fine-tuned)   | 16.45 %               | 28.92 %   | 29.61 %               |
 
 ### Task 2 — SLU
 
