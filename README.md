@@ -1,193 +1,281 @@
-# 🏆 SLT 2026 SmartGlasses Challenge: Official Evaluation Toolkit
+# SLT 2026 SmartGlasses Challenge — Text Normalization Toolkit
 
-This repository hosts the official evaluation toolkit of the **SLT 2026 SmartGlasses Challenge — Egocentric Speech Interaction on AI Glasses**. It is intended for participants to score their system outputs locally on the development set in a way that is consistent with the final scoring on the hidden test set. For the call for participation, data description, registration and the full timeline, please refer to the challenge homepage:
+[![SLT 2026](https://img.shields.io/badge/SLT-2026-blue)](https://aslp-lab.github.io/SmartGlasses/)
 
-- 🌐 **Challenge homepage**: <https://aslp-lab.github.io/SmartGlasses/>
+This module provides the official text normalization utilities for the
+**SLT 2026 SmartGlasses Challenge: Egocentric Speech Interaction on AI Glasses**.
+It is designed for preprocessing ASR hypothesis and reference texts before
+computing CER (Character Error Rate) and WER (Word Error Rate) in Tasks 1
+(TSA-ASR) and Task 2 (SLU).
+
+> **Challenge homepage**: [https://aslp-lab.github.io/SmartGlasses/](https://aslp-lab.github.io/SmartGlasses/)
 
 ---
 
-## 📖 1. Challenge Overview
+## Table of Contents
 
-Driven by the rapid progress of Large Language Models (LLMs) and Multimodal LLMs, AI-powered smart glasses are becoming a next-generation platform for human–computer interaction. Equipped with microphone arrays and cameras, smart glasses naturally capture the wearer's egocentric (first-person) perspective and enable hands-free multimodal communication in daily life. Compared with stationary devices such as smart speakers or handheld smartphones, smart glasses operate in highly dynamic acoustic environments with environmental noise, user-generated motion noise, and speech from surrounding people, which makes robust speech-centric interaction substantially harder.
+- [Overview](#overview)
+- [Installation](#installation)
+- [Input Format (STM)](#input-format-stm)
+- [Normalization Pipeline](#normalization-pipeline)
+- [Usage](#usage)
+  - [Command Line](#command-line)
+  - [Python API](#python-api)
+- [Examples](#examples)
+- [API Reference](#api-reference)
+- [License](#license)
 
-The SmartGlasses Challenge introduces a new benchmark for evaluating **Time-Stamped Speaker-Attributed ASR (TSA-ASR)** and **Spoken Language Understanding (SLU)** in real-world egocentric scenarios. The challenge consists of two tracks:
+---
 
-- **Track 1 — Dyadic Dialogue Understanding**: face-to-face two-person conversations in everyday settings, with overlapping speech, background interference and topic shifts.
-- **Track 2 — Multi-Party Meeting Understanding**: multi-speaker meetings with varying numbers of participants, frequent turn-taking, long contexts and domain-specific vocabulary.
+## Overview
 
-Each track contains two tasks:
+The SmartGlasses Challenge evaluates two tracks:
 
-- **Task 1 — TSA-ASR**: speaker-attributed transcription with time alignment in overlapping speech.
-- **Task 2 — SLU**: multiple-choice question answering over the conversation/meeting audio.
+| Track | Scenario | Description |
+|---|---|---|
+| **Track 1** | Dyadic Dialogue | Face-to-face two-person conversations with overlapping speech, background interference, and topic shifts. |
+| **Track 2** | Multi-Party Meeting | Multi-speaker meetings with varying participants, frequent turn-taking, long contexts, and domain-specific vocabulary. |
 
-## 🎯 2. Scope of This Toolkit
+Each track has two tasks:
 
-**This toolkit currently covers the TSA-ASR task (Task 1) of both Track 1 and Track 2.** The official ASR evaluation pipeline is built on top of [MeetEval](https://github.com/fgnt/meeteval), so all metrics, time-tolerance collars and input formats here are aligned with the final test-set scoring.
+| Task | Name | Description |
+|---|---|---|
+| **Task 1** | TSA-ASR | Time-Stamped Speaker-Attributed ASR — transcribe speech with speaker labels and timestamps. |
+| **Task 2** | SLU | Spoken Language Understanding — answer multiple-choice questions over the audio. |
 
-**Primary ranking metric** for Task 1 is **tcpWER** (time-constrained minimum-permutation Word Error Rate) with a time tolerance collar of **5 s**. Two diagnostic metrics are additionally reported to help teams locate error sources:
+This toolkit handles **text normalization** for Task 1 (TSA-ASR) evaluation. It
+normalizes hypothesis (system output)
+transcripts before  computation, ensuring a fair and consistent scoring.
 
-- **cpWER**: minimum-permutation WER without time constraint.
-- **DER**: diarization error rate, computed via MeetEval's `dscore` wrapper around `md-eval-22.pl`, with a 0.25 s collar.
+---
 
-For the SLU task (Task 2), please see Section 7 below.
+## Installation
 
-## ⚙️ 3. Installation
-
-The toolkit only depends on `meeteval`. We recommend a clean Python ≥ 3.8 environment.
-
-Install from PyPI:
-
-```bash
-pip install meeteval
-```
-
-Or install from source (useful if you want the latest changes):
-
-```bash
-git clone https://github.com/fgnt/meeteval
-pip install -e ./meeteval
-```
-
-After installation the following command-line entries should be available:
+The module has **no external dependencies** beyond Python 3.8+.
 
 ```bash
-meeteval-wer --help
-meeteval-der --help
+# Clone or copy text_normalization.py into your project
+# Then simply import:
+from text_normalization import normalize_text
 ```
 
-Then clone this repository:
+---
+
+## Input Format (STM)
+
+System outputs for Task 1 must be submitted in **STM (Segments Time Mark)**
+format. Each line represents one speech segment:
+
+```
+<session_id> 1 <speaker_id> <begin_time> <end_time> <hypothesis_text>
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `session_id` | string | Audio session identifier (e.g., `chat_0000`) |
+| `1` | int | Channel (always 1 for this challenge) |
+| `speaker_id` | string | Speaker label (e.g., `spk01`, `spk02`) |
+| `begin_time` | float | Segment start time in seconds |
+| `end_time` | float | Segment end time in seconds |
+| `hypothesis_text` | string | ASR transcript for this segment |
+
+**Example:**
+
+```
+chat_0000 1 spk01 0.37 6.47 炒饭用生抽嗯用生抽嗯清淡点这蛋味儿能出来
+chat_0000 1 spk02 6.47 7.16
+chat_0000 1 spk01 7.16 7.99 你干嘛你别碰老抽啊
+English_Australian_1127_015_phone 1 2 0.7600 2.9900 yeah recording uh
+```
+
+- Lines with fewer than 6 fields are treated as silence (empty segments).
+- Lines starting with `;` are treated as comments and preserved as-is.
+
+---
+
+## Normalization Pipeline
+
+The toolkit applies the following transformations **in order** to ensure
+deterministic and reproducible results:
+
+```
+Raw text
+    │
+    ▼
+1. Unicode NFC Normalization
+    │  Canonical composition of combining characters.
+    ▼
+2. Strip Invisible Control Characters
+    │  Zero-width spaces, BOM, directional marks, etc.
+    ▼
+3. Arabic Digit → Chinese (Value-Based)
+    │  Integer part:  value-based conversion  (200 → 二百, 12 → 十二)
+    │  Decimal part:  digit-by-digit mapping  (.14 → 一四)
+    ▼
+4. Remove Punctuation
+    │  Chinese: ， 。、？！：；""''（）【】《》「」～·…—
+    │  English: !"#$%&()*+,-./:;<=>?@[]^_`{|}~
+    │  Symbols: ●■□◆◇▲△▼▽★☆
+    ▼
+5. Space Chinese Characters
+    │  Insert a space between every Chinese character for CER alignment.
+    │  Non-Chinese tokens (English words, digits) remain contiguous.
+    ▼
+6. Collapse & Trim Whitespace
+    │
+    ▼
+Normalized text
+```
+
+### Digit Conversion Detail
+
+The integer part of a number uses **value-based conversion** (matching the
+convention in Chinese reference transcripts), while the fractional part uses
+**digit-by-digit mapping**:
+
+| Input | Output |
+|---|---|
+| `12` | `十二` |
+| `200` | `二百` |
+| `100` | `一百` |
+| `101` | `一百零一` |
+| `98.5` | `九十八点五` |
+| `3.14` | `三点一四` |
+
+### Chinese Spacing Detail
+
+After normalization, Chinese characters are space-separated to enable
+character-level alignment for CER:
+
+| Input | Output |
+|---|---|
+| `炒饭用生抽` | `炒 饭 用 生 抽` |
+| `一共二百元` | `一 共 二 百 元` |
+| `yeah recording uh` | `yeah recording uh` (unchanged) |
+
+---
+
+## Usage
+
+### Command Line
 
 ```bash
-git clone https://github.com/DontPushMeee/Smart-Glass-Challenge.git
-cd Smart-Glass-Challenge
+# Normalize an STM hypothesis file
+python text_normalization.py --stm hyp.stm -o hyp_norm.stm
+
+# Normalize with digit conversion disabled
+python text_normalization.py --stm hyp.stm -o hyp_norm.stm -d
+
+# Normalize a single text string
+python text_normalization.py "炒饭用生抽，嗯用生抽。"
+
+# Analyze character distribution
+python text_normalization.py --analyze "你好，世界！Hello123"
 ```
 
-## 📝 4. Input Format
+### Python API
 
-Both the reference and the hypothesis files **must be in STM (Segmental Time Mark) format**. Each line in an STM file describes one utterance:
+```python
+from text_normalization import normalize_text, normalize_stm
 
-```text
-<session_id> <channel> <speaker_id> <begin_time> <end_time> <transcript>
+# Normalize a single string
+text = normalize_text("炒饭用生抽，嗯用生抽。")
+# => "炒 饭 用 生 抽 嗯 用 生 抽"
+
+# Normalize with digit conversion disabled
+text = normalize_text("价格是12块5毛", convert_digit=False)
+# => "价 格 是 12 块 5 毛"
+
+# Normalize an STM file
+texts = normalize_stm("hyp.stm", output_path="hyp_norm.stm")
+# => Returns list of normalized hypothesis texts,
+#    writes full STM with normalized transcripts to hyp_norm.stm
 ```
 
-The fields are space-separated:
+---
 
-- `session_id`: recording / session identifier (must match between ref and hyp).
-- `channel`: channel ID (conventionally set to `1`; ignored by MeetEval during scoring).
-- `speaker_id`: speaker label or system output stream. Speaker labels do not need to be aligned between ref and hyp — cpWER / tcpWER will find the best permutation automatically.
-- `begin_time`, `end_time`: utterance start / end in seconds (float).
-- `transcript`: the words of this utterance, separated by spaces.
+## Examples
 
-### Chinese Tokenization
+### STM Normalization
 
-The TSA-ASR task in this challenge is evaluated at the **character level for Chinese**. In every STM line, **Chinese sentences must be tokenized into individual characters separated by single spaces**. Punctuation should be removed. For example, a sentence such as `你好请问你是新来的同事吗` must be written as:
+**Input:**
 
-```text
-你 好 请 问 你 是 新 来 的 同 事 吗
+```
+English_Australian_1127_015_phone 1 2 0.7600 2.9900 yeah recording uh
+chat_0000 1 spk01 0.37 6.47 炒饭用生抽，嗯用生抽。
+chat_0000 1 spk01 7.16 7.99 你干嘛？你别碰老抽啊！
+chat_0001 1 spk02 1.23 4.56 价格是12块5毛，一共200元。
 ```
 
-Submissions whose Chinese segments are not character-tokenized will be scored as-is (i.e., the whole sentence will be treated as one token), which is almost always penalised by WER.
+**Output:**
 
-### Example Files
-
-Two minimal example files are provided under [`example/`](example):
-
-- [`example/ref.stm`](example/ref.stm): reference transcript.
-- [`example/hyp.stm`](example/hyp.stm): a toy hypothesis.
-
-They follow exactly the format expected for an official submission (see Section 6).
-
-## 🚀 5. How to Run
-
-The driver script is [`run.sh`](run.sh). It runs the three official metrics in sequence on the example pair:
-
-```bash
-bash run.sh
+```
+English_Australian_1127_015_phone 1 2 0.7600 2.9900 yeah recording uh
+chat_0000 1 spk01 0.37 6.47 炒 饭 用 生 抽 嗯 用 生 抽
+chat_0000 1 spk01 7.16 7.99 你 干 嘛 你 别 碰 老 抽 啊
+chat_0001 1 spk02 1.23 4.56 价 格 是 十 二 块 五 毛 一 共 二 百 元
 ```
 
-The three commands invoked are:
+### Per-Utterance Comparison
 
-```bash
-# Diarization Error Rate (DER), 0.25 s collar
-meeteval-der dscore  -r example/ref.stm -h example/hyp.stm --collar .25
+| Input | Normalized |
+|---|---|
+| `炒饭用生抽，嗯用生抽。` | `炒 饭 用 生 抽 嗯 用 生 抽` |
+| `你干嘛？你别碰老抽啊！` | `你 干 嘛 你 别 碰 老 抽 啊` |
+| `价格是12块5毛，一共200元。` | `价 格 是 十 二 块 五 毛 一 共 二 百 元` |
+| `第1名和第2名` | `第 一 名 和 第 二 名` |
+| `yeah recording uh` | `yeah recording uh` |
 
-# Concatenated minimum-Permutation WER (cpWER)
-meeteval-wer cpwer   -r example/ref.stm -h example/hyp.stm
+---
 
-# Time-Constrained cpWER (tcpWER), 5 s collar
-meeteval-wer tcpwer  -r example/ref.stm -h example/hyp.stm --collar 5
-```
+## API Reference
 
-### Argument Notes
+### `normalize_text(text, convert_digit=True, space_chinese=True, remove_spaces=False)`
 
-- `-r` / `-h`: path of the reference / hypothesis STM file.
-- `--collar`: time tolerance, in seconds. Different metrics use different collars by convention. **For the official ranking metric `tcpWER`, the collar is fixed to `5` seconds.**
-- `--collar .25` for DER follows the dscore convention.
+Normalize a single text string.
 
-To score on your own data, simply replace `example/ref.stm` and `example/hyp.stm` with your reference and your system output. Each invocation will write a JSON file next to the hypothesis (e.g. `hyp_cpwer.json`, `hyp_tcpwer.json`, `hyp_dscore.json`) that contains the detailed statistics.
+- **Args:**
+  - `text` (str): Input text.
+  - `convert_digit` (bool): Convert Arabic digits to Chinese (default: True).
+  - `space_chinese` (bool): Insert spaces between Chinese characters (default: True).
+  - `remove_spaces` (bool): Remove all whitespace (default: False).
+- **Returns:** Normalized text string.
 
-## ⚠️ 6. Submission and Failure Rules
+### `normalize_stm(stm_path, output_path=None, convert_digit=True, space_chinese=True, remove_spaces=False)`
 
-For Task 1 (TSA-ASR), every audio session in the evaluation set **must have a result that can be parsed as a valid `hyp.stm` file**. Concretely:
+Read an STM file and normalize the hypothesis field.
 
-- The submission must contain one STM line per recognised utterance, following the format described in Section 4.
-- All session IDs that appear in the official reference must also appear in the submission. Sessions for which the system fails to produce any output will be treated as empty hypotheses (i.e. counted as deletions).
-- Lines that cannot be parsed (wrong number of fields, non-numeric timestamps, missing speaker id, etc.) are considered invalid. **Submissions that cannot be parsed by this toolkit will not be scored as a valid result.**
+- **Args:**
+  - `stm_path` (str): Path to the STM file.
+  - `output_path` (str, optional): Write normalized STM to this path.
+  - `convert_digit` (bool): Convert Arabic digits (default: True).
+  - `space_chinese` (bool): Insert spaces between Chinese characters (default: True).
+  - `remove_spaces` (bool): Remove all whitespace (default: False).
+- **Returns:** List of normalized hypothesis text strings.
 
-The exact submission packaging (file naming, directory layout, manifest) will be released by the organisers ahead of the leaderboard opening, and the official scoring pipeline will be the one in this repository. Teams are strongly encouraged to verify their hypotheses with `bash run.sh` against their own files before submission.
+### `convert_digits(text)`
 
-## 🧠 7. SLU Task Evaluation (Task 2)
+Convert Arabic digits to Chinese using value-based mapping.
 
-For the time being, participating teams can evaluate their SLU models locally by simply calculating the **Accuracy** (i.e., the percentage of correctly answered multiple-choice questions) against the provided Dev set references. Since the metric is straightforward, a unified evaluation script is not provided at this stage. Baseline accuracy scores on the Dev set are provided in Section 8.
+- **Args:** `text` (str): Input with digits.
+- **Returns:** Converted text.
 
-We will release the standardized submission format requirements and integrate the official SLU scoring pipeline into this repository well before the test phase and leaderboard submission open. Please stay tuned.
+### `space_chinese_text(text)`
 
-## 📊 8. Reference Results
+Insert a space between every Chinese character.
 
-The numbers below are reference baseline scores evaluated on the **official development (dev) set**.
+- **Args:** `text` (str): Input text.
+- **Returns:** Text with Chinese characters space-separated.
 
-### Task 1 — TSA-ASR
+### `analyze_text(text)`
 
-The following scores are obtained by running the metrics in this toolkit on the outputs of two reference systems:
+Analyze character-type distribution of a text string.
 
-- **VibeVoice-ASR**: the off-the-shelf [**VibeVoice-ASR**](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md) checkpoint, used directly without any adaptation to the challenge data.
-- **VibeVoice-ASR (fine-tuned)**: the same VibeVoice-ASR backbone, LoRA-fine-tuned **separately** on the official training data of each track (i.e., the Track 1 model is fine-tuned only on Track 1 data, and the Track 2 model only on Track 2 data). The training setup follows [`example/VibeVoice/finetuning-asr/train.sh`](example/VibeVoice/finetuning-asr/train.sh); see [`example/VibeVoice/README.md`](example/VibeVoice/README.md) for installation, fine-tuning and inference instructions.
+- **Args:** `text` (str): Input text.
+- **Returns:** Dict with counts of chinese_chars, digits, english_letters, punctuation, spaces, other.
 
-#### Track 1 — Dyadic Dialogue Understanding
+---
 
-| System                       | DER (collar = 0.25 s) | cpWER     | tcpWER (collar = 5 s) |
-|------------------------------|:---------------------:|:---------:|:---------------------:|
-| VibeVoice-ASR                | 10.02 %               | 15.77 %   | 16.24 %               |
-| VibeVoice-ASR (fine-tuned)   | 17.24 %               | 12.88 %   | 14.09 %               |
+## License
 
-#### Track 2 — Multi-Party Meeting Understanding
-
-| System                       | DER (collar = 0.25 s) | cpWER     | tcpWER (collar = 5 s) |
-|------------------------------|:---------------------:|:---------:|:---------------------:|
-| VibeVoice-ASR                | 19.16 %               | 31.85 %   | 32.39 %               |
-| VibeVoice-ASR (fine-tuned)   | 16.45 %               | 28.92 %   | 29.61 %               |
-
-### Task 2 — SLU
-
-The following table reports the **Accuracy (%)** of baseline Large Audio-Language Models on the multiple-choice QA task.
-
-| Model | Track 1 (Dyadic) | Track 2 (Meeting) |
-|---|:---:|:---:|
-| Qwen2.5-Omni | 63.13 | 54.37 |
-| Qwen3-Omni | 74.49 | 75.08 |
-
-Additional reference systems and the corresponding scores will be published in this repository as the challenge progresses.
-
-## 🙏 9. Acknowledgement
-
-This toolkit is built on top of [MeetEval](https://github.com/fgnt/meeteval) by Paderborn University. We thank the authors for releasing and maintaining this excellent meeting-transcription evaluation library.
-
-We also acknowledge the use of [VibeVoice](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr.md) as one of our baseline systems for the TSA-ASR task.
-
-## 📧 10. Contact
-
-For questions or issues regarding the evaluation toolkit, please open an issue in this repository or contact the challenge organisers:
-
-- gdh@mail.nwpu.edu.cn
-- zxzhao@mail.nwpu.edu.cn
-- liaoyujie@mail.nwpu.edu.cn
+Apache License 2.0
